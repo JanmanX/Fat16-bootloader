@@ -11,25 +11,29 @@ start_16:
 	mov sp, 0x7C00
 	sti
 
+	; Store the drive number
+	push edx
+
+	; Print drive number
+	xor eax, eax
+	mov al, dl
+	call print_number_16
+
 	; Print loading message
 	mov esi, msg_loading
 	call print_string
 
-	; READ FROM DISK
-	mov eax, 0x01		; Read 1 sector (512 bytes).
-	mov dl, 0x80		; First harddisk
-	mov ecx, 0x02		; Sector = 2
-	xor dh, dh		; head = 0
-	mov bx, 0x7E00		; Destination of read
-	call read_sectors_16
+	; Extended read
+	mov si, DAP		; address of "disk address packet"
+	mov ah, 0x42		; AL is unused
+	pop edx			; Get drive number (in DL)
+	int 0x13
 
-	; Check for errors (If carry flag is set)
 	jc error
 
-	mov esi, msg_loaded
-	call print_string
+	mov eax, print_string
+	mov ebx, print_number_16
 	jmp 0x0000:0x7E00
-
 
 ; Generic function for errors
 error:
@@ -101,9 +105,52 @@ read_sectors_16:
 	ret
 
 
+; print_number_16
+;
+; Prints a hex value
+;
+; input: ax 	= number
+hex_str db '0000', 0x0A, 0x00	; Buffer for our hex value
+hex   	db '0123456789ABCDEF'
+print_number_16:
+	pusha
+	mov di, hex_str
+	mov si, hex
+	mov cx, 0x04
+hex_loop:
+	; Move the rightmost 4 bits to bx
+	rol ax, 0x04
+	mov bx, ax
+	and bx, 0x0f
+	; Find the corresponding ascii value by indexing hex string
+	mov bl, [si + bx]
+	; Store in output buffer
+	mov [di], bl
+	inc di
+	dec cx
+	jnz hex_loop
+
+	mov si, hex_str
+	call print_string
+	popa
+	ret
+
 msg_loading db 'DIKOS Bootloader - Loading', 0x0A, 0x00
 msg_loaded db 'Loading complete. Jumping', 0x0A, 0x00
 msg_error db 'Error occured', 0x0A, 0x00
+
+
+DAP:
+	db 0x10
+	db 0x00
+block_count:
+	dw 0x01
+db_add:
+	dw 0x7E00
+	dw 0x00			; Memory page
+d_lba:
+	dd 0x01
+	dd 0x00
 
 times 510-($-$$) db 0x00
 

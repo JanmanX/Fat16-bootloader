@@ -1,8 +1,10 @@
-DISK_IMAGE=hdd.img
+DISK_IMAGE=os.img
 QEMU=qemu-system-x86_64
 AS=nasm
 AFLAGS=-f bin
 SOURCES=$(wildcard *.asm)
+OBJECTS=$(SOURCES:.asm=.)
+
 
 
 #  $@ Contains the target file name.
