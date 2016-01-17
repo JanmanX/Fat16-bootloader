@@ -19,9 +19,11 @@ start_16:
 	mov al, dl
 	call print_number_16
 
+
 	; Print loading message
 	mov esi, msg_loading
 	call print_string
+
 
 	; Extended read
 	mov si, DAP		; address of "disk address packet"
@@ -110,8 +112,9 @@ read_sectors_16:
 ; Prints a hex value
 ;
 ; input: ax 	= number
-hex_str db '0000', 0x0A, 0x00	; Buffer for our hex value
-hex   	db '0123456789ABCDEF'
+hex_prefix 	db '0x' 		; Prefix for the hex_str
+hex_str 	db '0000', 0x0A, 0x00	; Buffer for our hex value
+hex   		db '0123456789ABCDEF'
 print_number_16:
 	pusha
 	mov di, hex_str
@@ -130,14 +133,13 @@ hex_loop:
 	dec cx
 	jnz hex_loop
 
-	mov si, hex_str
+	mov si, hex_prefix
 	call print_string
 	popa
 	ret
 
-msg_loading db 'DIKOS Bootloader - Loading', 0x0A, 0x00
-msg_loaded db 'Loading complete. Jumping', 0x0A, 0x00
-msg_error db 'Error occured', 0x0A, 0x00
+msg_loading db 'bootloader: DIKOS Bootloader', 0x0A, 0x00
+msg_error db 'bootloader: Error occured', 0x0A, 0x00
 
 
 DAP:
@@ -152,7 +154,11 @@ d_lba:
 	dd 0x01
 	dd 0x00
 
+
+; Null the rest of the sector
 times 510-($-$$) db 0x00
 
+
+; Boot signature
 db 0x55
 db 0xaa

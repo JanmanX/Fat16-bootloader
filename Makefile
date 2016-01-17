@@ -24,4 +24,5 @@ debug: $(DISK_IMAGE)
 						-ex 'layout asm' \
 						-ex 'layout regs' \
 						-ex 'break *0x7c00 ' \
+						-ex 'break *0x7e00 ' \
 						-ex 'continue'

@@ -42,15 +42,60 @@ start:
 	cld		; Clear direction flag
 
 
-	; Detect CPU compatibility (Check if Protected mode available)
+	; Check CPUID availability
+	; If CPUID instruction is supported, the 'ID' bit (0x200000) in eflags
+	; will be modifiable.
+	pushfd			; Store EFLAGs
+	pushfd			; Store EFLAGs again. (This will be modified)
+	xor dword [esp], 0x00200000 ; Flip the ID flag
+	popfd			; Load the modified EFLAGS
+	pushfd			; Store it again for inspection
+	pop eax
+	xor eax, [esp]		; Compare to original EFLAGS
+	popfd			; Restore original EFLAGs
+	and eax, 0x00200000	; eax = 0 if ID bit cannot be changed, else non-zero
+	jz no_cpuid
 
-	jmp $
 
-	; Enter LONG MODE / PROTECTED MODE
+	; Check if Protected mode available
+	mov eax, 0x80000000
+	cpuid
+	cmp eax, 0x80000000	; Check if functions above 0x80000000 exist
+	jbe no_long_mode
+	mov eax, 0x80000001	; Extended Processor Signature and Extended Feature Bits
+	cpuid
+	bt edx, 29		; Test if bit at offset 29 (long mode flag) is on
+	jnc no_long_mode	; Exit if not supported
+
+
+	; Enter LONG MODE (Directly from real mode. Experimental)
+
 	; SETUP GDT
 	; SETUP IDT
 
 
-msg_entry db 'os_loader:start', 0x0A, 0x00
+	jmp $			; Stop the CPU . REMOVE THIS
+
+
+; Error printing routines that jump to halt
+no_cpuid:
+	mov esi, msg_no_cpuid
+	call [print_string_16]
+	jmp halt
+
+
+no_long_mode:
+	mov esi, msg_no_long_mode
+	call [print_string_16]
+	jmp halt
+
+; Halts the CPU
+halt:
+	jmp $
+
+
+msg_entry db 'os_loader: OS_Loader started', 0x0A, 0x00
+msg_no_long_mode db 'os_loader: Long mode not supported.', 0x0A, 0x00
+msg_no_cpuid db 'os_loader: No CPUID', 0x0A, 0x00
 print_string_16 dw 0x00
 print_number_16 dw 0x00
