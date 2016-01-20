@@ -15,7 +15,7 @@ OBJECTS=$(SOURCES:.asm=.)
 run: $(DISK_IMAGE)
 	$(QEMU) $(DISK_IMAGE)
 
-$(DISK_IMAGE): bootloader os_loader
+$(DISK_IMAGE): clean bootloader os_loader
 	cat bootloader os_loader > $(DISK_IMAGE)
 
 debug: $(DISK_IMAGE)
@@ -26,3 +26,8 @@ debug: $(DISK_IMAGE)
 						-ex 'break *0x7c00 ' \
 						-ex 'break *0x7e00 ' \
 						-ex 'continue'
+
+
+clean:
+	-rm -rfv $(DISK_IMAGE)
+	-rm -rfv bootloader os_loader

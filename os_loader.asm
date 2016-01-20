@@ -8,13 +8,14 @@
 ;	- print_string 		= 	ax
 ;	- print_number_16	= 	bx
 ;
-; TODO:
-;	- Check CPUID availability
 ;
 ;------------------------------------------------------------------------------
 
 [BITS 16]
 [ORG 0x7E00]
+
+; DIKOS signature "DIOSDIOS" (4 bytes)
+dikos_signature dd 0xD105D105
 
 start:
 	; Save functions from bootloader
@@ -37,8 +38,8 @@ start:
 	mov ds, ax
 	mov es, ax
 	mov ss, ax
-	mov fs, ax
-	mov gs, ax
+;	mov fs, ax
+;	mov gs, ax
 	cld		; Clear direction flag
 
 
@@ -68,14 +69,28 @@ start:
 	jnc no_long_mode	; Exit if not supported
 
 
+	; Enabling A20 line is recommended
+	call enable_a20
+	cmp ax, 0x00
+	je a20_disabled
+
+
+
 	; Enter LONG MODE (Directly from real mode. Experimental)
 
 	; SETUP GDT
 	; SETUP IDT
 
+	; Success if this point reached
+	mov esi, msg_success
+	call [print_string_16]
 
-	jmp $			; Stop the CPU . REMOVE THIS
+	jmp $
 
+a20_disabled:
+	mov esi, msg_a20_disabled
+	call [print_string_16]
+	jmp halt
 
 ; Error printing routines that jump to halt
 no_cpuid:
@@ -91,11 +106,25 @@ no_long_mode:
 
 ; Halts the CPU
 halt:
+	mov esi, msg_halt
+	call [print_string_16]
 	jmp $
 
 
+
 msg_entry db 'os_loader: OS_Loader started', 0x0A, 0x00
-msg_no_long_mode db 'os_loader: Long mode not supported.', 0x0A, 0x00
+msg_no_long_mode db 'os_loader: Long mode not supported', 0x0A, 0x00
 msg_no_cpuid db 'os_loader: No CPUID', 0x0A, 0x00
+msg_a20_disabled db 'os_loader: A20 line could not be enabled', 0x0A, 0x00
+msg_halt	db 'os_loader: CPU HALT!', 0x0A, 0x00
+msg_success db 'Standing by...', 0x0A, 0x00
+
 print_string_16 dw 0x00
 print_number_16 dw 0x00
+
+%include "a20_line.asm"
+
+; Pad to 8190 bytes (leave 2 bytes for halts, which can also be used as signature)
+times 0x1FFE-($-$$) db 0x90
+hlt
+hlt
