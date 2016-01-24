@@ -39,19 +39,6 @@ check_a20:
 	mov byte [ds:si], 0xFF	; If A20 disabled, this will wrap and overwrite
 				; the '0x00'
 
-
-	; DEBUG
-	; Reset ds segment to correctly call the function
-	xor ax, ax
-	mov ds, ax
-	mov al, byte [es:di]
-	call [print_number_16]
-	; Reset the ds
-	xor ax, ax
-	not ax
-	mov ds, ax
-	; END DEBUG
-
 	; Check if the original value has been changed due to the wrap-around
 	cmp byte [es:di], 0xFF	; Set ZF
 

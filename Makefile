@@ -1,7 +1,7 @@
 DISK_IMAGE=os.img
 QEMU=qemu-system-x86_64
 AS=nasm
-AFLAGS=-f bin
+AFLAGS=-f bin -g
 SOURCES=$(wildcard *.asm)
 OBJECTS=$(SOURCES:.asm=.)
 
@@ -24,10 +24,11 @@ debug: $(DISK_IMAGE)
 						-ex 'layout asm' \
 						-ex 'layout regs' \
 						-ex 'break *0x7c00 ' \
-						-ex 'break *0x7e00 ' \
+						-ex 'break *0x7e04 ' \
 						-ex 'continue'
-
+vm: $(DISK_IMAGE)
+	VBoxManage internalcommands createrawvmdk -rawdisk $(DISK_IMAGE) -filename os.vmdk
 
 clean:
 	-rm -rfv $(DISK_IMAGE)
-	-rm -rfv bootloader os_loader
+	-rm -rfv bootloader os_loader os.vmdk
