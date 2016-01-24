@@ -31,4 +31,4 @@ vm: $(DISK_IMAGE)
 
 clean:
 	-rm -rfv $(DISK_IMAGE)
-	-rm -rfv bootloader os_loader os.vmdk
+	-rm -rfv bootloader os_loader os.vmdk long_mode

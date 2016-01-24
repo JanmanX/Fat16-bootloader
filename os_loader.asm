@@ -1,6 +1,6 @@
 ;------------------------------------------------------------------------------
 ;				OS LOADER
-; Loaded at 0x7E00 to 0x9FC00. (0x9FC00 - 0x7E00 = 0x97E00)
+; Loaded at 0x7E00 to 0x9E00 (0x7E00 + 0x2000 = 0x9E00)
 ;
 ; Assumes:
 ; 	- Stackpointer set
@@ -12,8 +12,10 @@
 [BITS 16]
 [ORG 0x7E00]
 
+
+%define DIKOS_SIGNATURE 0xD105D105
 ; DIKOS signature "DIOSDIOS" (4 bytes)
-dikos_signature dd 0xD105D105
+dikos_signature dd DIKOS_SIGNATURE
 
 ; Offset 4 bytes
 start:
@@ -68,10 +70,10 @@ start:
 	je a20_disabled
 
 
-	; Enter LONG MODE (Directly from real mode. Experimental)
+	; Enter long mode
+	jmp enter_long_mode
 
-	; SETUP GDT
-	; SETUP IDT
+
 
 	; Success if this point reached
 	mov si, msg_success
@@ -109,6 +111,7 @@ msg_no_cpuid db 'No CPUID',0x0D, 0x0A, 0x00
 msg_a20_disabled db 'A20 line could not be enabled',0x0D, 0x0A, 0x00
 msg_halt	db 'CPU HALT!', 0x0A,0x0D, 0x00
 msg_success db 'Standing by...',0x0D, 0x0A, 0x00
+
 
 ; 16-bit function to print a sting to the screen
 print_string_16:                        ; Output string in SI to screen
@@ -154,10 +157,11 @@ hexloop:
 
 
 %include "a20_line.asm"
+%include "long_mode.asm"
 
 
 
-; Pad to 8190 bytes (leave 2 bytes for halts, which can also be used as signature)
-times 0x1FFE-($-$$) db 0x90
-hlt
-hlt
+; Pad to 8190 bytes
+; Leave 4 bytes for signature
+times 0x2000-4-($-$$) db 0x90
+dd DIKOS_SIGNATURE

@@ -56,6 +56,10 @@ start_16:
 	cmp eax, 0xD105D105	; Check with DIKOS signature
 	jne signature_mismatch
 
+	mov eax, [0x7E00 + 0x1FFC] 	; End of the loaded binary minus 4 bytes
+	cmp eax, 0xD105D105		; Check with DIKOS signature
+	jne signature_mismatch
+
 	mov ax, print_string
 	mov bx, print_number_16
 	jmp 0x0000:0x7E04
