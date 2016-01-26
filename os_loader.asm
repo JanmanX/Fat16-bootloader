@@ -71,8 +71,8 @@ start:
 
 
 	; Enter long mode
+	mov edi, 0xA000
 	jmp enter_long_mode
-
 
 
 	; Success if this point reached

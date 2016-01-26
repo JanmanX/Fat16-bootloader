@@ -26,8 +26,20 @@ debug: $(DISK_IMAGE)
 						-ex 'break *0x7c00 ' \
 						-ex 'break *0x7e04 ' \
 						-ex 'continue'
+
+debug_kernel: $(DISK_IMAGE)
+	$(QEMU) $(DISK_IMAGE) -s -S & gdb -ex 'target remote localhost:1234'\
+						-ex 'layout asm' \
+						-ex 'layout regs' \
+						-ex 'break *0x7e04 ' \
+						-ex 'continue'
+
+
+
 vm: $(DISK_IMAGE)
 	VBoxManage internalcommands createrawvmdk -rawdisk $(DISK_IMAGE) -filename os.vmdk
+
+
 
 clean:
 	-rm -rfv $(DISK_IMAGE)
