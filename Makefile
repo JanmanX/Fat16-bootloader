@@ -34,7 +34,7 @@ debug_kernel: $(DISK_IMAGE)
 						-ex 'break *0x7e04 ' \
 						-ex 'continue'
 
-
+usb: clean $(DISK_IMAGE)
 
 vm: $(DISK_IMAGE)
 	VBoxManage internalcommands createrawvmdk -rawdisk $(DISK_IMAGE) -filename os.vmdk
@@ -44,3 +44,4 @@ vm: $(DISK_IMAGE)
 clean:
 	-rm -rfv $(DISK_IMAGE)
 	-rm -rfv bootloader os_loader os.vmdk long_mode
+	-rm -rfv disk.img

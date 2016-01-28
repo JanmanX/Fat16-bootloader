@@ -1,3 +1,5 @@
+; Bootloader for fat 12
+;
 ; 	I use this for debugging...
 ;	mov ah, 0x0e    ; function number = 0Eh : Display Character
 ;	mov al, '!'     ; AL = code of character to display
@@ -5,13 +7,53 @@
 
 [BITS 16]	; opcode prefix
 [ORG 0x7C00]
+
+; BIOS PARAMETER BLOCK (BPB):
+; Field			Bytes	Hex-offset
+; ----------------------------------------
+; OEMIdentifier		8	0x0003
+; BytesPerSector	2	0x000B
+; SectorsPerCluster	1	0x000D
+; ReservedSectors	2	0x000E
+; FatCopies		1	0x0010
+; RootDirEntries	2	0x0011
+; NumSectors		2	0x0013
+; MediaType		1	0x0015
+; SectorsPerFAT		2	0x0016
+; SectorsPerTrack	2	0x0018
+; NumberOfHeads		2	0x001A
+; HiddenSectors		4	0x001C
+; SectorsBig		4	0x0020
+; ----------------------------------------
+
+; Only first 3 bytes can be code:
+entry:
 	jmp short pre_start_16
 	nop
 
-; BIOS PARAMETER BLOCK:
-; https://stackoverflow.com/questions/34966441/bootloader-printing-garbage-on-real-hardware
-; 50 NOPs is probably too much, 25 should be enough.
-times 50 db 0x90
+OEMIdentifier 		db 'DIKOS0.1'
+BytesPerSector 		dw 0x200	; 512 bytes per sector
+SectorsPerCluster	db 0x20		; 32 sector per cluster
+ReservedSectors 	dw 0x01		; Reserved sectors before FAT
+FatCopies		db 0x02		; Often this value is 2.
+RootDirEntries 		dw 200		; TODO: Look up
+NumSectors		dw 0x00		;  If this value is 0, it means there are more than 65535 sectors in the volume
+MediaType		db 0xF8		; Fixed disk -> Harddisk
+SectorsPerFAT		dw 0x20		; TODO: Look up
+SectorsPerTrack		dw 0x20		; TODO: Look up? BIOS might change those
+NumberOfHeads		dw 0x01		; Does this even matter?
+HiddenSectors		dd 0x00
+SectorsBig		dd 0x10000
+
+; Extended BPB (DOS 4.0)
+DriveNumber		db 0x00		; 0 for removable, 0x80 for hard-drive
+WinNTBit		db 0x00		; WinNT uses this
+Signature		db 0x29		; DOS 4.0 EBPB signature
+VolumeID		dd 0xD105B001	; Volume ID. "DIKOS BOOT"
+VolumeIDString		dd "DIKOS BOOT "; Volume ID
+SystemIDString		db "FAT12   "   ; File system type, pad with blanks to 8 bytes
+
+
 
 pre_start_16:
 	jmp 0x0000:start_16	; Bogus BIOSes might load at 0x07C0:0
@@ -35,21 +77,17 @@ start_16:
 	mov si, msg_loading
 	call print_string
 
-	; Extended read
-	mov dx, 0x10			; Read 16 * 512 bytes
-	xor eax, eax
-	xor ebx, ebx
-	inc ebx				; Read second sector (sector 1)
-	mov cx, 0x7E00			; Start of the os_loader binary
-.loop:
-	call read_sector
-	add ebx, 0x01			; next block
-	adc eax, 0x00			; Add 1 to higher sector dword on overflow
-	add cx, 0x200			; Move in destination address
 
-	dec dx
+	; Read stage 2 into 0x7E00
+	xor bx, bx			; bx = 0. Used to set es register
+	mov es, bx			; Segment = 0
+	mov bx, 0x7E00			; Target offset = 0x7E00 (Just after bootloader)
 
-	jnz .loop
+	mov cx, 0x10			; Read 16 * 512 bytes = 8192 bytes
+	mov eax, 0x01			; Start from second sector
+
+	call read_sectors
+
 
 	; Signature check
 	mov eax, [0x7E00]	; Start of the loaded binary
@@ -106,45 +144,57 @@ print_string:
 	ret
 
 
-; read_sector
+; read_sectors
 ;
-; Reads one sector from a disk and stores them at a specified location
+; Reads one or more sectors from the disk using BIOS extended read service.
 ;
-; input:	eax = 	High dword of sector
-;		ebx = 	Low dword of sector to start from.
-; 		es:cx =	Destination address (segment:offset)
-; output:	eax = 	High dword of next sector
-;		ebx =	Low dword of next sector
-; 		es:cx = Points byte after the last read
-read_sector:
+; input:	eax = 	LBA sector offset
+;		es:bx =	Destination address. (ES should probably be 0)
+;		cx = 	Number of sectors to read
+read_sectors:
 	pusha
-	mov [dap_sector_high], eax
-	mov [dap_sector_low], ebx
+	mov [dap_sector_low], eax
 	mov [dap_segment], es
-	mov [dap_offset], cx
-	; Sectors to read should already be set to 1
-	; DAP size should also already be set
+	mov [dap_offset], bx
 
-
-	; BIOS Extended read
 .extended_read:
+	; BIOS READ
 	mov ah, 0x42
 	mov dl, [drive_number]
 	mov si, dap
 	int 0x13
-	jnc read_ok	; On success
+	jnc .read_ok		; No carry flag indicates read OK
 
-	mov ah, 0x0e    ; function number = 0Eh : Display Character
-	mov al, '!'     ; AL = code of character to display
-	int 0x10        ; call INT 10h, BIOS video service
+	; Indicate error occured
+	; TODO: REMOVE
+	mov ah, 0x0e
+	mov al, '!'
+	int 0x10
 
 	; On error, reset drives and try again
-	xor ax, ax	; ax = 0
-	int 0x13	; Reset drives
+	xor ax, ax
+	int 0x13
 	jmp .extended_read
 
-read_ok:
-	popa
+.read_ok:
+	popa			; Restore registers
+	dec cx			; Decrement counter
+	jz read_sectors_exit	; Exit if all sectors have been read
+
+	inc eax			; Move to next sector
+	add bx, 0x200		; Move the destination address
+	jnc .no_carry
+
+	; Add 0x1000 to es.
+	; It is a segment register, so direct access is not possible
+	mov dx, es
+	add dh, 0x10	; Add 0x10 to high byte of dh
+	mov es, dx
+	; Fall through
+.no_carry
+	jmp read_sectors
+
+read_sectors_exit:
 	ret
 
 
