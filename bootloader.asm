@@ -8,6 +8,8 @@
 [BITS 16]	; opcode prefix
 [ORG 0x7C00]
 
+%define DEBUG
+
 ; BIOS PARAMETER BLOCK (BPB):
 ; Field			Bytes	Hex-offset
 ; ----------------------------------------
@@ -33,26 +35,25 @@ entry:
 
 OEMIdentifier 		db 'DIKOS0.1'
 BytesPerSector 		dw 0x200	; 512 bytes per sector
-SectorsPerCluster	db 0x20		; 32 sector per cluster
-ReservedSectors 	dw 0x01		; Reserved sectors before FAT
-FatCopies		db 0x02		; Often this value is 2.
-RootDirEntries 		dw 200		; TODO: Look up
-NumSectors		dw 0x00		;  If this value is 0, it means there are more than 65535 sectors in the volume
+SectorsPerCluster	db 0x80		;
+ReservedSectors 	dw 0x01		; Reserved sectors before FAT (TODO: is this BOOT?)
+FATCopies		db 0x02		; Often this value is 2.
+RootDirEntries 		dw 0x0800	; Root directory entries
+NumSectors		dw 0x0000	;  If this value is 0, it means there are more than 65535 sectors in the volume
 MediaType		db 0xF8		; Fixed disk -> Harddisk
-SectorsPerFAT		dw 0x20		; TODO: Look up
+SectorsPerFAT		dw 0x0100	; Sectors used by each FAT Table
 SectorsPerTrack		dw 0x20		; TODO: Look up? BIOS might change those
-NumberOfHeads		dw 0x01		; Does this even matter?
+NumberOfHeads		dw 0x40		; Does this even matter?
 HiddenSectors		dd 0x00
-SectorsBig		dd 0x10000
+SectorsBig		dd 0x773594		;
 
 ; Extended BPB (DOS 4.0)
-DriveNumber		db 0x00		; 0 for removable, 0x80 for hard-drive
+DriveNumber		db 0x80		; 0 for removable, 0x80 for hard-drive
 WinNTBit		db 0x00		; WinNT uses this
 Signature		db 0x29		; DOS 4.0 EBPB signature
-VolumeID		dd 0xD105B001	; Volume ID. "DIKOS BOOT"
-VolumeIDString		dd "DIKOS BOOT "; Volume ID
+VolumeID		dd 0x0000D105	; Volume ID. "DIKOS"
+VolumeIDString		db "DIKOS BOOT "; Volume ID
 SystemIDString		db "FAT12   "   ; File system type, pad with blanks to 8 bytes
-
 
 
 pre_start_16:
@@ -78,41 +79,92 @@ start_16:
 	call print_string
 
 
-	; Read stage 2 into 0x7E00
-	xor bx, bx			; bx = 0. Used to set es register
-	mov es, bx			; Segment = 0
-	mov bx, 0x7E00			; Target offset = 0x7E00 (Just after bootloader)
+	; Read FAT table 0 right after bootloader
+	mov cx, [SectorsPerFAT]		; Number of sectors to read
+	mov ax, [ReservedSectors]	; Read just after reserved sectors
+	mov bx, 0x7E00			; target address just after bootloader
+	mov [fat_table_address], bx	; Save the target address for later
+	call read_sectors
 
-	mov cx, 0x10			; Read 16 * 512 bytes = 8192 bytes
-	mov eax, 0x01			; Start from second sector
+	; Calculate the root directory size
+	; root_size = DirEntrySize * DirEntries / BytesPerSector
+	mov ax, 0x20			; Size of each directory entry in bytes
+	mul word [RootDirEntries]
+	div word [BytesPerSector]	; ax = root dir size in sectors
+	push ax				; Store root dir size on stack
 
+	; Calculate offset of root directory on drive
+	; offset = ReservedSectors + (FATCopies * SectorsPerFAT)
+	mov ax, [SectorsPerFAT]
+	mul byte [FATCopies]
+	add ax, [ReservedSectors]	; ax = offset of root dir on drive
+	push ax				; store on stack
+
+	; Calculate the sector offset of the first cluster (used later)
+	; Cluster Offset = Reserved + (FATCopies * FATSize) + RootDirSize
+	pop bx				; offset of root directory
+	pop cx				; size of root directory
+	mov ax, bx
+	add ax, cx
+	mov [data_cluster_offset], ax
+	push cx
+	push bx
+
+	; Calculate the address off the end of the FAT 0 table in RAM
+	; offset = fat_table_address + (SectorsPerFAT * BytesPerSector)
+	mov ax, [SectorsPerFAT]
+	mul word [BytesPerSector]
+	add ax, [fat_table_address]
+	mov [root_dir_address], ax	; Store root directory address for later
+	mov bx, ax			; bx = target address
+	pop ax				; Retrieve the offset on stack
+	pop cx				; Retrieve the sector count
 	call read_sectors
 
 
-	; Signature check
-	mov eax, [0x7E00]	; Start of the loaded binary
-	cmp eax, 0xD105D105	; Check with DIKOS signature
-	jne signature_mismatch
+	times 10 db 0x90
+	; Now that root directory is loaded, iterate over each entry and compare
+	; with "STAGE2" name
+	mov bx, [root_dir_address]	; Base address
 
-	mov eax, [0x7E00 + 0x1FFC] 	; End of the loaded binary minus 4 bytes
-	cmp eax, 0xD105D105		; Check with DIKOS signature
-	jne signature_mismatch
+.loop_dir_entries:
+	mov di, stage2_name
+	mov si, bx		; String to compare with
+	mov cx, 0x06		; Length of name
+	rep cmpsb		; Compare strings
+	je .match		; Match found
 
-	mov ax, print_string
-	mov bx, print_number_16
-	jmp 0x0000:0x7E04
-
-
-; Signature not matching
-signature_mismatch:
-	mov si, msg_signature_error
-	call print_string
-
-	call print_number_16
-	rol eax, 0x10		; Move upper 16 bits to ax
-	call print_number_16
-
+	add bx, 0x20		; Move to next index
+	jl .loop_dir_entries
 	jmp error
+
+.match:
+	; Match found. Load stage 2
+	; bx points to root directory entry of stage2
+	mov ax, word [bx + 0x1A]	; offset of the first logical cluster
+					; in the directory entry
+	mul word [BytesPerSector]
+	mov bx, [data_cluster_offset]	; end of Root Directory
+
+.fetch:
+	push ax
+
+	xor cx, cx
+	mov cl, byte [SectorsPerCluster]
+	add ax, [data_cluster_offset]
+
+	times 5 db 0x90
+
+	call read_sectors
+
+	times 5 db 0x90
+
+	mov ah, 0x0e
+	mov al, '!'
+	int 0x10
+
+	jmp 0x0000:0xDE00
+
 
 ; Generic function for errors
 error:
@@ -151,6 +203,9 @@ print_string:
 ; input:	eax = 	LBA sector offset
 ;		es:bx =	Destination address. (ES should probably be 0)
 ;		cx = 	Number of sectors to read
+;
+; output:	eax 	= Next LBA sector offset
+; 		es:bx 	= Next address
 read_sectors:
 	pusha
 	mov [dap_sector_low], eax
@@ -165,7 +220,7 @@ read_sectors:
 	int 0x13
 	jnc .read_ok		; No carry flag indicates read OK
 
-	; Indicate error occured
+	; Indicate error occud
 	; TODO: REMOVE
 	mov ah, 0x0e
 	mov al, '!'
@@ -178,9 +233,6 @@ read_sectors:
 
 .read_ok:
 	popa			; Restore registers
-	dec cx			; Decrement counter
-	jz read_sectors_exit	; Exit if all sectors have been read
-
 	inc eax			; Move to next sector
 	add bx, 0x200		; Move the destination address
 	jnc .no_carry
@@ -191,10 +243,14 @@ read_sectors:
 	add dh, 0x10	; Add 0x10 to high byte of dh
 	mov es, dx
 	; Fall through
-.no_carry
+.no_carry:
+	dec cx			; Decrement counter
+	jz read_sectors_exit	; Exit if all sectors have been read
+
 	jmp read_sectors
 
 read_sectors_exit:
+
 	ret
 
 
@@ -228,12 +284,16 @@ hexloop:
 
 msg_read_error db 'Reading from disk failed', 0x0D, 0x0A, 0x00
 msg_loading db 'DIKOS Bootloader', 0x0D, 0x0A, 0x00
-msg_error db 'Error occured', 0x0D, 0x0A, 0x00
-msg_signature_error db 'Signature not matching. EAX: ', 0x0D, 0x0A, 0x00
+msg_error db 'Error', 0x0D, 0x0A, 0x00
 
 ; Variables
-drive_number db 0x00	; Drive number
+drive_number db 0x00		; Drive number
+fat_table_address dw 0x0000	; Address of the FAT table
+root_dir_address dw 0x0000	; Address of root directory
+data_cluster_offset dw 0x0000	; offset of the first cluster
 
+
+stage2_name 	db 'STAGE2'	; name of stage2 loader in root directory
 
 ; Data Address Packet (DAP) for reading from disk using BIOS service int 13h/42h
 dap:

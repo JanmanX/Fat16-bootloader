@@ -120,12 +120,11 @@ GDT64:                           ; Global Descriptor Table (64-bit).
     db 00000000b                 ; Granularity.
     db 0                         ; Base (high).
     .Pointer:                    ; The GDT-pointer.
-    dw $ - GDT64 - 1             ; Limit.
-    dq GDT64                     ; Base.
+    dw $ - GDT64 - 1             ; Limit (length of GDT).
+    dq GDT64                     ; Address of GDT64
 
 
 [BITS 64]
-
 long_mode:
 	mov ax, DATA_SEG
 	mov ds, ax
