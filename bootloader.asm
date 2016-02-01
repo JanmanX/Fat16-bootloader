@@ -6,7 +6,7 @@
 ;	int 0x10        ; call INT 10h, BIOS video service
 
 [BITS 16]	; opcode prefix
-[ORG 0x7C00]
+[ORG 0x0000]
 
 %define DEBUG
 
@@ -30,7 +30,7 @@
 
 ; Only first 3 bytes can be code:
 entry:
-	jmp short pre_start_16
+	jmp short start_16
 	nop
 
 OEMIdentifier 		db 'DIKOS0.1'
@@ -56,17 +56,18 @@ VolumeIDString		db "DIKOS BOOT "; Volume ID
 SystemIDString		db "FAT12   "   ; File system type, pad with blanks to 8 bytes
 
 
-pre_start_16:
-	jmp 0x0000:start_16	; Bogus BIOSes might load at 0x07C0:0
+;pre_start_16:
+;	jmp 0x0000:start_16	; Bogus BIOSes might load at 0x07C0:0
 
 start_16:
-        xor ax, ax
-	mov ds, ax
-	mov es, ax
         cli                             ; Disable interrupts
+	xor ax, ax
         mov ss, ax
-        mov sp, 0x7C00
-        sti                             ; Enable interrupts
+	mov sp, 0x7C00
+	mov ax, 0x07C0
+	mov ds, ax
+        mov es, ax
+	sti                             ; Enable interrupts
 	cld				; Clear Direction Flag
 
 	; Store the drive number
@@ -79,92 +80,181 @@ start_16:
 	call print_string
 
 
-	; Read FAT table 0 right after bootloader
-	mov cx, [SectorsPerFAT]		; Number of sectors to read
-	mov ax, [ReservedSectors]	; Read just after reserved sectors
-	mov bx, 0x7E00			; target address just after bootloader
-	mov [fat_table_address], bx	; Save the target address for later
-	call read_sectors
+	; Calculate root directory sector offset
+	; sector = Reserved + FATCopies * SectorsPerFAT
+	mov ax, [FATCopies]
+	mul word [SectorsPerFAT]
+	add ax, [ReservedSectors]
+	mov [root_dir_offset], ax	; Store the sector offset
 
-	; Calculate the root directory size
-	; root_size = DirEntrySize * DirEntries / BytesPerSector
-	mov ax, 0x20			; Size of each directory entry in bytes
-	mul word [RootDirEntries]
-	div word [BytesPerSector]	; ax = root dir size in sectors
-	push ax				; Store root dir size on stack
+	mov [reg16], ax
+	call print_number_16
 
-	; Calculate offset of root directory on drive
-	; offset = ReservedSectors + (FATCopies * SectorsPerFAT)
-	mov ax, [SectorsPerFAT]
-	mul byte [FATCopies]
-	add ax, [ReservedSectors]	; ax = offset of root dir on drive
-	push ax				; store on stack
+	; Calculate the data cluster offset
+	; offset = root_dir_offset + root_dir_size
+	; root_dir_size = (RootDirEntries * 0x20) / BytesPerSector
+	;  	NOTE, to avoid overflow, do this instead
+	; root_dir_size = RootDirEntries / (BytesPerSector / 0x20)
+	xchg ax, bx			; root_dir_offset in bx
 
-	; Calculate the sector offset of the first cluster (used later)
-	; Cluster Offset = Reserved + (FATCopies * FATSize) + RootDirSize
-	pop bx				; offset of root directory
-	pop cx				; size of root directory
-	mov ax, bx
-	add ax, cx
+	mov ax, [BytesPerSector]
+	mov cx, 0x20
+	div cx
+	xchg ax, cx			; cx = BytesPerSector / 0x20
+	mov ax, [RootDirEntries]
+	div cx				; ax = RootDirEntries / BytesPerSector / 0x20
+	add ax, bx			; ax = root_dir_size + root_dir_offset
+
+	; Data cluster sector offset should be 0x281
+	; Thus, the first cluster sector offset is:
+	; 0x281 + (FAT_Entry - 2) * SectorsPerCluster
+	; 0x281 + (3 - 2) * SectorsPerCluster
+	; 0x281 + SectorsPerCluster
+	; 0x281 + 0x80
+	; 0x301.
+	; In bytes, that is 0x301 * 0x200 = 0x60200
 	mov [data_cluster_offset], ax
-	push cx
-	push bx
 
-	; Calculate the address off the end of the FAT 0 table in RAM
-	; offset = fat_table_address + (SectorsPerFAT * BytesPerSector)
-	mov ax, [SectorsPerFAT]
-	mul word [BytesPerSector]
-	add ax, [fat_table_address]
-	mov [root_dir_address], ax	; Store root directory address for later
-	mov bx, ax			; bx = target address
-	pop ax				; Retrieve the offset on stack
-	pop cx				; Retrieve the sector count
+	mov [reg16], ax
+	call print_number_16
+
+
+	; Iteratively read sectors from root directory and search for stage 2
+	xor dx, dx
+.loop:
+	mov ax, [root_dir_offset]
+	add ax, dx			; Read sector offset dx + root_dir_offset
+	mov bx, 0x200			; Read to 0x7E00 (just after bootloader)
+	mov cx, 0x01			; Read 1 sector
+	push dx				; Save dx for later
 	call read_sectors
 
 
-	times 10 db 0x90
-	; Now that root directory is loaded, iterate over each entry and compare
-	; with "STAGE2" name
-	mov bx, [root_dir_address]	; Base address
-
+	; Search for stage 2
+	mov bx, 0x200			; First entry
+	mov ax, bx
+	add ax, [BytesPerSector]	; When si = bx, we have iterated over
+					; all entries.
 .loop_dir_entries:
-	mov di, stage2_name
-	mov si, bx		; String to compare with
-	mov cx, 0x06		; Length of name
-	rep cmpsb		; Compare strings
-	je .match		; Match found
+	mov di, stage2_name		; Load name of stage 2 ("STAGE2")
+	mov cx, 0x06			; Length of string to compare
+	mov si, bx
+	rep cmpsb 			; Compares byte at address SI and DI
+	je .match			; Jump when match found
 
-	add bx, 0x20		; Move to next index
-	jl .loop_dir_entries
-	jmp error
+	; No match, move to next entry
+	add bx, 0x20
+	cmp ax, bx			; If ax = bx, no more entries
+	jne .loop_dir_entries
+
+	; Move to next sector and try again
+	pop dx
+	inc dx
+	jmp .loop
 
 .match:
-	; Match found. Load stage 2
-	; bx points to root directory entry of stage2
-	mov ax, word [bx + 0x1A]	; offset of the first logical cluster
-					; in the directory entry
-	mul word [BytesPerSector]
-	mov bx, [data_cluster_offset]	; end of Root Directory
+	mov ah, 0x0e    ; function number = 0Eh : Display Character
+	mov al, '!'     ; AL = code of character to display
+	int 0x10        ; call INT 10h, BIOS video service
+	jmp $
 
-.fetch:
-	push ax
 
-	xor cx, cx
-	mov cl, byte [SectorsPerCluster]
-	add ax, [data_cluster_offset]
 
-	times 5 db 0x90
 
-	call read_sectors
-
-	times 5 db 0x90
-
-	mov ah, 0x0e
-	mov al, '!'
-	int 0x10
-
-	jmp 0x0000:0xDE00
-
+;	; Iterate over root directory
+;	mov dx, 0x00			; Counter for current part of root dir
+;.next:
+;	; Load next part of root directory
+;	mov cx, 0x01
+;
+;
+;
+;	; Read FAT table 0 right after bootloader
+;	mov cx, [SectorsPerFAT]		; Number of sectors to read
+;	mov ax, [ReservedSectors]	; Read just after reserved sectors
+;	mov bx, 0x200			; target address just after bootloader
+;	mov [fat_table_address], bx	; Save the target address for later
+;	call read_sectors
+;
+;	; Calculate the root directory size
+;	; root_size = DirEntrySize * DirEntries / BytesPerSector
+;	mov ax, 0x20			; Size of each directory entry in bytes
+;	mul word [RootDirEntries]
+;	div word [BytesPerSector]	; ax = root dir size in sectors
+;	push ax				; Store root dir size on stack
+;
+;	; Calculate offset of root directory on drive
+;	; offset = ReservedSectors + (FATCopies * SectorsPerFAT)
+;	mov ax, [SectorsPerFAT]
+;	mul byte [FATCopies]
+;	add ax, [ReservedSectors]	; ax = offset of root dir on drive
+;	push ax				; store on stack
+;
+;	; Calculate the sector offset of the first cluster (used later)
+;	; Cluster Offset = Reserved + (FATCopies * FATSize) + RootDirSize
+;	pop bx				; offset of root directory
+;	pop cx				; size of root directory
+;	mov ax, bx
+;	add ax, cx
+;	mov [data_cluster_offset], ax
+;	push cx
+;	push bx
+;
+;	; Calculate the address off the end of the FAT 0 table in RAM
+;	; offset = fat_table_address + (SectorsPerFAT * BytesPerSector)
+;	mov ax, [SectorsPerFAT]
+;	mul word [BytesPerSector]
+;	add ax, [fat_table_address]
+;	mov [root_dir_address], ax	; Store root directory address for later
+;	mov bx, ax			; bx = target address
+;	pop ax				; Retrieve the offset on stack
+;	pop cx				; Retrieve the sector count
+;	call read_sectors
+;
+;
+;	times 10 db 0x90
+;	; Now that root directory is loaded, iterate over each entry and compare
+;	; with "STAGE2" name
+;	mov bx, [root_dir_address]	; Base address
+;
+;.loop_dir_entries:
+;	mov di, stage2_name
+;	mov si, bx		; String to compare with
+;	mov cx, 0x06		; Length of name
+;	rep cmpsb		; Compare strings
+;	je .match		; Match found
+;
+;	add bx, 0x20		; Move to next index
+;	jl .loop_dir_entries
+;	jmp error
+;
+;.match:
+;	; Match found. Load stage 2
+;	; bx points to root directory entry of stage2
+;	mov ax, word [bx + 0x1A]	; offset of the first logical cluster
+;					; in the directory entry
+;	mul word [BytesPerSector]
+;	mov bx, [data_cluster_offset]	; end of Root Directory
+;
+;.fetch:
+;	push ax
+;
+;	xor cx, cx
+;	mov cl, byte [SectorsPerCluster]
+;	add ax, [data_cluster_offset]
+;
+;	times 5 db 0x90
+;
+;	call read_sectors
+;
+;	times 5 db 0x90
+;
+;	mov ah, 0x0e
+;	mov al, '!'
+;	int 0x10
+;
+;	jmp 0x0000:0xDE00
+;
 
 ; Generic function for errors
 error:
@@ -288,9 +378,9 @@ msg_error db 'Error', 0x0D, 0x0A, 0x00
 
 ; Variables
 drive_number db 0x00		; Drive number
-fat_table_address dw 0x0000	; Address of the FAT table
-root_dir_address dw 0x0000	; Address of root directory
+root_dir_offset dw 0x0000	; Address of root directory
 data_cluster_offset dw 0x0000	; offset of the first cluster
+
 
 
 stage2_name 	db 'STAGE2'	; name of stage2 loader in root directory
@@ -304,7 +394,7 @@ dap_reserved:			; Reserved. Should be 0
 dap_block_count:		; Number of blocks to read
 	dw 0x01
 dap_offset:			; Offset. (Already set with default)
-	dw 0x7E00
+	dw 0x0000
 dap_segment:			; Segment
 	dw 0x00
 dap_sector_low:			; Lower 32 bits of sector number
