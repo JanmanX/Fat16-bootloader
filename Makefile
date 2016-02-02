@@ -17,16 +17,19 @@ run: $(DISK_IMAGE)
 	$(QEMU) $(DISK_IMAGE)
 
 
+
+
+# WRITE BIOS PARAMETER BLOCK BEFORE MOUNTING IT, AS IT CHANGES
+# FAT 16 INFORMATION
 $(DISK_IMAGE): bootloader stage2
-	dd if=/dev/zero of=$(DISK_IMAGE) bs=16MB count=150 conv=fsync
+	dd if=/dev/zero of=$(DISK_IMAGE) bs=16MB count=125 conv=fsync
 	mkfs.fat -F 16 $(DISK_IMAGE)
+	dd if=bootloader of=$(DISK_IMAGE) conv=notrunc,fsync
 	-mkdir ./tmp
 	-sudo umount ./tmp
 	sudo mount $(DISK_IMAGE) ./tmp
-	sudo cp stage2 ./tmp/stage2.bin
+	sudo cp stage2 ./tmp/STAGE2.BIN
 	sudo umount ./tmp/
-	dd if=bootloader of=$(DISK_IMAGE) conv=notrunc,fsync
-
 
 debug: $(DISK_IMAGE)
 	$(QEMU) $(DISK_IMAGE) -s -S & gdb -ex 'target remote localhost:1234'\
@@ -55,8 +58,7 @@ umount: $(DISK_IMAGE)
 	-sudo umount ./tmp
 
 clean:
-	-rm -rfv $(DISK_IMAGE)
 	-rm -rfv bootloader stage2 os.vmdk long_mode
-	-rm -rfv disk.img
 	-sudo umount ./tmp
 	-rm -rfv ./tmp
+	-rm -rfv $(DISK_IMAGE)

@@ -161,7 +161,7 @@ start_16:
 
 .match:
 	mov ah, 0x0e    ; function number = 0Eh : Display Character
-	mov al, '!'     ; AL = code of character to display
+	mov al, 'f'     ; AL = code of character to display
 	int 0x10        ; call INT 10h, BIOS video service
 
 	; ES:BX points to the root directory entry
@@ -172,65 +172,21 @@ start_16:
 ; - Check next cluster
 ; - Exit if none
 ; - Repeat
-	mov bx, 0x0400
-	mov [stage2_cur_offset], bx
 .lloop:
-	push ax			; Store FAT INDEX
-
-
 	; Calculate the Cluster sector offset
 	; offset = data_cluster_offset + (FAT_INDEX - 2) * SectorsPerCluster
 	sub ax, 0x02
 	mul byte [SectorsPerCluster]
 	add ax, [data_cluster_offset]	; Starting offset
 
-	mov cx, [SectorsPerCluster]	; Number of sectors to read
-	mov bx, [stage2_cur_offset]	; offset to read to
-	call read_sectors
-
-	add bx, [SectorsPerCluster]	; Increment bx
-	mov [stage2_cur_offset], bx	; save current offset
-
-
-	; To load the file, we have to lookup the FAT table.
-	; To avoid loading the whole table, we will only load the section of it
-	; that contains the information about our cluster.
-	; For each sector in FAT table, there are 256 entries of clusters.
-	; 	ex. To load FAT entries on cluster 300:
-	;		300 / 256 = 1 (rounded down).
-	;		300 % 256 = 44
-	;	Thus, we load the first sector and look at entry 44.
-	pop ax				; Retrieve FAT INDEX
-	xor dx, dx
-	mov cx, 256
-	div cx
-	push dx				; Store remainder
-
-	; ax is the quotient
-	; 0x7d03
-	add ax, [ReservedSectors]	; Compute actual offset to read
-	mov cx, 0x01			; Read only one sector
-
-	xor bx, bx
-	mov es, bx
-	mov bx, 0x7E00			; Read to 0x7E00. Root_dir is not needed
-
-	call read_sectors
-
-	; Retrieve the next cluster
-	pop bx
-	shl bx, 0x01			; Multiply by 2 as every entry is 2 bytes
-	add bx, 0x200			; Add bytes preceeding (boot sector)
-	mov ax, word [bx]
-
-
 	mov [reg16], ax
 	call print_number_16
 
+	mov cx, [SectorsPerCluster]	; Number of sectors to read
+	mov bx, 0x0400			; offset to read to
+	call read_sectors
 
-	; test the
 	jmp 0x0000:0x8000
-
 
 
 ; Generic function for errors
@@ -288,9 +244,8 @@ read_sectors:
 	jnc .read_ok		; No carry flag indicates read OK
 
 	; Indicate error occud
-	; TODO: REMOVE
 	mov ah, 0x0e
-	mov al, '!'
+	mov al, 'R'
 	int 0x10
 
 	; On error, reset drives and try again
@@ -348,7 +303,7 @@ hexloop:
 	call print_string
 	ret
 
-msg_read_error db 'Reading failed', 0x0D, 0x0A, 0x00
+
 msg_loading db 'DIKOS Bootloader', 0x0D, 0x0A, 0x00
 msg_error db 'Error', 0x0D, 0x0A, 0x00
 
@@ -358,6 +313,7 @@ root_dir_offset dw 0x0000	; Address of root directory
 data_cluster_offset dw 0x0000	; offset of the first cluster
 stage2_name 	db 'STAGE2'	; name of stage2 loader in root directory
 stage2_cur_offset dw 0x0000	; Current offset in memory
+stage2_cur_segment dw 0x0000	; Current segment in memory
 
 ; Data Address Packet (DAP) for reading from disk using BIOS service int 13h/42h
 dap:
