@@ -18,7 +18,7 @@ run: $(DISK_IMAGE)
 
 
 $(DISK_IMAGE): bootloader stage2
-	dd if=/dev/zero of=$(DISK_IMAGE) bs=16MB count=125 conv=fsync
+	dd if=/dev/zero of=$(DISK_IMAGE) bs=16MB count=150 conv=fsync
 	mkfs.fat -F 16 $(DISK_IMAGE)
 	-mkdir ./tmp
 	-sudo umount ./tmp

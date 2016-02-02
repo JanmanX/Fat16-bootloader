@@ -70,6 +70,7 @@ start_16:
 	sti                             ; Enable interrupts
 	cld				; Clear Direction Flag
 
+
 	; Store the drive number
 	mov [drive_number], dl
 	mov [reg16], dx
@@ -150,111 +151,87 @@ start_16:
 	; Move to next sector and try again
 	pop dx
 	inc dx
-	jmp .loop
+
+	cmp dx, 0x80			; Have we iterated over whole root dir?
+	jne .loop
+
+	; At this point, we have iterated over whole root directory without
+	; success. Exit
+	jmp error
 
 .match:
 	mov ah, 0x0e    ; function number = 0Eh : Display Character
 	mov al, '!'     ; AL = code of character to display
 	int 0x10        ; call INT 10h, BIOS video service
-	jmp $
+
+	; ES:BX points to the root directory entry
+	mov ax, word [bx + 0x1A]	; Retrieve the first cluster number
+
+; - Load cluster (ax) to disk starting 0x8000
+; - Load FAT0
+; - Check next cluster
+; - Exit if none
+; - Repeat
+	mov bx, 0x0400
+	mov [stage2_cur_offset], bx
+.lloop:
+	push ax			; Store FAT INDEX
 
 
+	; Calculate the Cluster sector offset
+	; offset = data_cluster_offset + (FAT_INDEX - 2) * SectorsPerCluster
+	sub ax, 0x02
+	mul byte [SectorsPerCluster]
+	add ax, [data_cluster_offset]	; Starting offset
+
+	mov cx, [SectorsPerCluster]	; Number of sectors to read
+	mov bx, [stage2_cur_offset]	; offset to read to
+	call read_sectors
+
+	add bx, [SectorsPerCluster]	; Increment bx
+	mov [stage2_cur_offset], bx	; save current offset
 
 
-;	; Iterate over root directory
-;	mov dx, 0x00			; Counter for current part of root dir
-;.next:
-;	; Load next part of root directory
-;	mov cx, 0x01
-;
-;
-;
-;	; Read FAT table 0 right after bootloader
-;	mov cx, [SectorsPerFAT]		; Number of sectors to read
-;	mov ax, [ReservedSectors]	; Read just after reserved sectors
-;	mov bx, 0x200			; target address just after bootloader
-;	mov [fat_table_address], bx	; Save the target address for later
-;	call read_sectors
-;
-;	; Calculate the root directory size
-;	; root_size = DirEntrySize * DirEntries / BytesPerSector
-;	mov ax, 0x20			; Size of each directory entry in bytes
-;	mul word [RootDirEntries]
-;	div word [BytesPerSector]	; ax = root dir size in sectors
-;	push ax				; Store root dir size on stack
-;
-;	; Calculate offset of root directory on drive
-;	; offset = ReservedSectors + (FATCopies * SectorsPerFAT)
-;	mov ax, [SectorsPerFAT]
-;	mul byte [FATCopies]
-;	add ax, [ReservedSectors]	; ax = offset of root dir on drive
-;	push ax				; store on stack
-;
-;	; Calculate the sector offset of the first cluster (used later)
-;	; Cluster Offset = Reserved + (FATCopies * FATSize) + RootDirSize
-;	pop bx				; offset of root directory
-;	pop cx				; size of root directory
-;	mov ax, bx
-;	add ax, cx
-;	mov [data_cluster_offset], ax
-;	push cx
-;	push bx
-;
-;	; Calculate the address off the end of the FAT 0 table in RAM
-;	; offset = fat_table_address + (SectorsPerFAT * BytesPerSector)
-;	mov ax, [SectorsPerFAT]
-;	mul word [BytesPerSector]
-;	add ax, [fat_table_address]
-;	mov [root_dir_address], ax	; Store root directory address for later
-;	mov bx, ax			; bx = target address
-;	pop ax				; Retrieve the offset on stack
-;	pop cx				; Retrieve the sector count
-;	call read_sectors
-;
-;
-;	times 10 db 0x90
-;	; Now that root directory is loaded, iterate over each entry and compare
-;	; with "STAGE2" name
-;	mov bx, [root_dir_address]	; Base address
-;
-;.loop_dir_entries:
-;	mov di, stage2_name
-;	mov si, bx		; String to compare with
-;	mov cx, 0x06		; Length of name
-;	rep cmpsb		; Compare strings
-;	je .match		; Match found
-;
-;	add bx, 0x20		; Move to next index
-;	jl .loop_dir_entries
-;	jmp error
-;
-;.match:
-;	; Match found. Load stage 2
-;	; bx points to root directory entry of stage2
-;	mov ax, word [bx + 0x1A]	; offset of the first logical cluster
-;					; in the directory entry
-;	mul word [BytesPerSector]
-;	mov bx, [data_cluster_offset]	; end of Root Directory
-;
-;.fetch:
-;	push ax
-;
-;	xor cx, cx
-;	mov cl, byte [SectorsPerCluster]
-;	add ax, [data_cluster_offset]
-;
-;	times 5 db 0x90
-;
-;	call read_sectors
-;
-;	times 5 db 0x90
-;
-;	mov ah, 0x0e
-;	mov al, '!'
-;	int 0x10
-;
-;	jmp 0x0000:0xDE00
-;
+	; To load the file, we have to lookup the FAT table.
+	; To avoid loading the whole table, we will only load the section of it
+	; that contains the information about our cluster.
+	; For each sector in FAT table, there are 256 entries of clusters.
+	; 	ex. To load FAT entries on cluster 300:
+	;		300 / 256 = 1 (rounded down).
+	;		300 % 256 = 44
+	;	Thus, we load the first sector and look at entry 44.
+	pop ax				; Retrieve FAT INDEX
+	xor dx, dx
+	mov cx, 256
+	div cx
+	push dx				; Store remainder
+
+	; ax is the quotient
+	; 0x7d03
+	add ax, [ReservedSectors]	; Compute actual offset to read
+	mov cx, 0x01			; Read only one sector
+
+	xor bx, bx
+	mov es, bx
+	mov bx, 0x7E00			; Read to 0x7E00. Root_dir is not needed
+
+	call read_sectors
+
+	; Retrieve the next cluster
+	pop bx
+	shl bx, 0x01			; Multiply by 2 as every entry is 2 bytes
+	add bx, 0x200			; Add bytes preceeding (boot sector)
+	mov ax, word [bx]
+
+
+	mov [reg16], ax
+	call print_number_16
+
+
+	; test the
+	jmp 0x0000:0x8000
+
+
 
 ; Generic function for errors
 error:
@@ -291,7 +268,7 @@ print_string:
 ; Reads one or more sectors from the disk using BIOS extended read service.
 ;
 ; input:	eax = 	LBA sector offset
-;		es:bx =	Destination address. (ES should probably be 0)
+;		es:bx =	Destination address.
 ;		cx = 	Number of sectors to read
 ;
 ; output:	eax 	= Next LBA sector offset
@@ -340,7 +317,6 @@ read_sectors:
 	jmp read_sectors
 
 read_sectors_exit:
-
 	ret
 
 
@@ -372,7 +348,7 @@ hexloop:
 	call print_string
 	ret
 
-msg_read_error db 'Reading from disk failed', 0x0D, 0x0A, 0x00
+msg_read_error db 'Reading failed', 0x0D, 0x0A, 0x00
 msg_loading db 'DIKOS Bootloader', 0x0D, 0x0A, 0x00
 msg_error db 'Error', 0x0D, 0x0A, 0x00
 
@@ -380,10 +356,8 @@ msg_error db 'Error', 0x0D, 0x0A, 0x00
 drive_number db 0x00		; Drive number
 root_dir_offset dw 0x0000	; Address of root directory
 data_cluster_offset dw 0x0000	; offset of the first cluster
-
-
-
 stage2_name 	db 'STAGE2'	; name of stage2 loader in root directory
+stage2_cur_offset dw 0x0000	; Current offset in memory
 
 ; Data Address Packet (DAP) for reading from disk using BIOS service int 13h/42h
 dap:
