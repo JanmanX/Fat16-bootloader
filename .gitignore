@@ -1,5 +1,10 @@
-*.bin
-*.swp
+bin/*
+src/*.swp
 images/
-*.img
-*.vdmk
+bin/*.img
+tmp/
+bin/*.vdmk
+
+
+src/bootloader
+src/stage2

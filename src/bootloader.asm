@@ -9,6 +9,7 @@
 [ORG 0x0000]
 
 %define DEBUG
+%define STAGE2_SIZE 0x10	; Stage2 size in sectors
 
 ; BIOS PARAMETER BLOCK (BPB):
 ; Field			Bytes	Hex-offset
@@ -160,10 +161,6 @@ start_16:
 	jmp error
 
 .match:
-	mov ah, 0x0e    ; function number = 0Eh : Display Character
-	mov al, 'f'     ; AL = code of character to display
-	int 0x10        ; call INT 10h, BIOS video service
-
 	; ES:BX points to the root directory entry
 	mov ax, word [bx + 0x1A]	; Retrieve the first cluster number
 
@@ -182,10 +179,11 @@ start_16:
 	mov [reg16], ax
 	call print_number_16
 
-	mov cx, [SectorsPerCluster]	; Number of sectors to read
+	mov cx, STAGE2_SIZE 	; Number of sectors to read
 	mov bx, 0x0400			; offset to read to
 	call read_sectors
 
+	; Enter Stage 2
 	jmp 0x0000:0x8000
 
 

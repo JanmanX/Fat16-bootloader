@@ -9,6 +9,9 @@
 [BITS 16]
 [ORG 0x8000]
 
+; CONSTANTS
+%define VIDEO_RAM 0xB8000		; Start of 80x25 video memory
+
 
 ; Offset 4 bytes
 start:
@@ -26,7 +29,7 @@ start:
 	mov ss, ax
 	mov fs, ax
 	mov gs, ax
-	mov sp, 0x7C00
+	mov sp, 0x7C00	; Reset SP
 	cld		; Clear direction flag
 
 	mov si, msg_entry
@@ -58,22 +61,15 @@ start:
 	jnc no_long_mode	; Exit if not supported
 
 
-	; Enabling A20 line is recommended
+	; Enable A20 line
 	call enable_a20
 	cmp ax, 0x00
 	je a20_disabled
 
-
 	; Enter long mode
-	mov edi, 0xA000
+	mov edi, 0xA000		; Place just after Stage2 (0x8000 + 0x2000)
 	jmp enter_long_mode
 
-
-	; Success if this point reached
-	mov si, msg_success
-	call print_string_16
-
-	jmp $
 
 a20_disabled:
 	mov si, msg_a20_disabled
@@ -99,12 +95,13 @@ halt:
 	jmp $
 
 
-msg_entry db 'OS_Loader started', 0x0D, 0x0A, 0x00
-msg_no_long_mode db 'Long mode not supported', 0x0D,0x0A, 0x00
-msg_no_cpuid db 'No CPUID',0x0D, 0x0A, 0x00
-msg_a20_disabled db 'A20 line could not be enabled',0x0D, 0x0A, 0x00
-msg_halt	db 'CPU HALT!', 0x0A,0x0D, 0x00
-msg_success db 'Standing by...',0x0D, 0x0A, 0x00
+; Variables used in REAL MODE
+msg_entry 		db 'OS_Loader started', 0x0D, 0x0A, 0x00
+msg_no_long_mode 	db 'Long mode not supported', 0x0D,0x0A, 0x00
+msg_no_cpuid 		db 'No CPUID',0x0D, 0x0A, 0x00
+msg_a20_disabled 	db 'A20 line could not be enabled',0x0D, 0x0A, 0x00
+msg_halt		db 'CPU HALT!', 0x0A,0x0D, 0x00
+msg_success 		db 'Standing by...',0x0D, 0x0A, 0x00
 
 
 ; 16-bit function to print a sting to the screen
@@ -150,9 +147,45 @@ hexloop:
 	ret
 
 
-%include "a20_line.asm"
-%include "long_mode.asm"
+%include "src/a20_line.asm"
+%include "src/long_mode.asm"
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;                                  64 BIT
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+[BITS 64]
+long_mode:
+	mov ax, DATA_SEG
+	mov ds, ax
+	mov es, ax
+	mov fs, ax
+	mov gs, ax
+	mov ss, ax
+
+	; Blank out the screen
+	mov edi, VIDEO_RAM
+	mov rcx, 25*80/4
+	mov rax, 0x7F207F207F207F20	; 4 white on grey spaces
+	rep stosq                         ; Clear the entire screen.
+
+	; Display "Hello World!"
+	mov edi, VIDEO_RAM
+	mov esi, msg_long_mode
+	mov ah, 0x7F
+.loop:
+	lodsb
+	cmp al, 0x00
+	je .loop_finished
+	mov [edi], ax
+	add edi, 0x02
+	jmp .loop
+
+.loop_finished
+	jmp $
+
+
+; Variables used in LONG MODE (64 bit)
+msg_long_mode db 'Long mode entered', 0x00
 
 
 ; Pad to 8190 bytes
