@@ -30,7 +30,6 @@ create_disk:
 $(DISK_IMAGE): src/bootloader src/stage2
 	mkfs.fat -F 16 $(DISK_IMAGE)
 	dd if=src/bootloader of=$(DISK_IMAGE) conv=notrunc,fsync
-	-mkdir ./tmp
 	-sudo umount ./tmp
 	sudo mount $(DISK_IMAGE) ./tmp
 	sudo cp src/stage2 ./tmp/STAGE2.BIN
@@ -58,9 +57,10 @@ umount: $(DISK_IMAGE)
 
 
 clean:
+	echo $(OBJECTS)
 	-rm -rfv src/bootloader src/stage2 bin/os.vmdk src/long_mode
 	-sudo umount ./tmp
 	-rm -rfv ./tmp
-
+	mkdir ./tmp
 
 full_clean: create_disk clean

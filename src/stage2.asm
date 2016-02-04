@@ -165,13 +165,13 @@ long_mode:
 	; Blank out the screen
 	mov edi, VIDEO_RAM
 	mov rcx, 25*80/4
-	mov rax, 0x7F207F207F207F20	; 4 white on grey spaces
+	mov rax, 0x0720072007200720	; 4 white on grey spaces
 	rep stosq                         ; Clear the entire screen.
 
 	; Display "Hello World!"
 	mov edi, VIDEO_RAM
 	mov esi, msg_long_mode
-	mov ah, 0x7F
+	mov ah, 0x07
 .loop:
 	lodsb
 	cmp al, 0x00
