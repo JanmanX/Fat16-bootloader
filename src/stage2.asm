@@ -155,33 +155,123 @@ hexloop:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 [BITS 64]
 long_mode:
-	mov ax, DATA_SEG
+	mov ax, KM_DATA
 	mov ds, ax
 	mov es, ax
 	mov fs, ax
 	mov gs, ax
 	mov ss, ax
 
-	; Blank out the screen
-	mov edi, VIDEO_RAM
-	mov rcx, 25*80/4
-	mov rax, 0x0720072007200720	; 4 white on grey spaces
-	rep stosq                         ; Clear the entire screen.
 
-	; Display "Hello World!"
-	mov edi, VIDEO_RAM
-	mov esi, msg_long_mode
-	mov ah, 0x07
+	call clear_screen
+
+	mov rsi, msg_long_mode
+	call print_string
+
+	jmp $
+;	; Blank out the screen
+;	mov edi, VIDEO_RAM
+;	mov rcx, 25*80/4
+;	mov rax, 0x0720072007200720	; 4 white on grey spaces
+;	rep stosq                         ; Clear the entire screen.
+;
+;	; Display "Hello World!"
+;	mov edi, VIDEO_RAM
+;	mov esi, msg_long_mode
+;	mov ah, 0x0A
+;.loop:
+;	lodsb
+;	cmp al, 0x00
+;	je .loop_finished
+;	mov [edi], ax
+;	add edi, 0x02
+;	jmp .loop
+;
+	jmp $
+
+; print_string
+;
+; Prints a string in 64 bit mode.
+; Color of string is stored in string_color
+;
+; Input: 	RSI = String to print
+;
+x_pos db 0x00
+y_pos db 0x00
+string_color db 0x0A		; Green color
+print_string:
+	push rax
+	push rbx
+
+	mov ah, byte [string_color]
 .loop:
-	lodsb
+	lodsb			; Loads a byte from [RSI] into AL
 	cmp al, 0x00
-	je .loop_finished
-	mov [edi], ax
-	add edi, 0x02
+	je .exit
+
+	; Write character
+	call print_character
+
 	jmp .loop
 
-.loop_finished
-	jmp $
+.exit:
+	; Update cursor
+	mov byte [x_pos], 0x00	; Set to start of line
+	add byte [y_pos], 0x01	; Move down one line
+
+	mov bl, 80
+	cmp bl, byte [y_pos]		; If on end of screen, reset
+
+	mov byte [y_pos], 0x00
+
+	pop rbx
+	pop rax
+	ret
+
+print_character:
+	push rcx
+	push rbx
+
+	mov cx, ax		; Save character and attribute
+
+	; Calculate memory to write to
+	movzx ax, byte [y_pos]
+	mov dx, 160		; 80 * 2
+	mul dx
+	movzx bx, byte [x_pos]
+	shl bx, 1		; Multiply by 2 to skip attrib
+
+	mov edi, 0x00
+	add di, ax		; Add rows
+	add di, bx		; add columns
+	add edi, VIDEO_RAM
+
+
+	mov ax, cx		; Restore character and attribute
+	stosw			; Write word to DI
+	add byte [x_pos], 0x01	; Move cursor to left
+
+	pop rbx
+	pop rcx
+	ret
+
+; clear_screen
+;
+; Blanks out a screen
+clear_screen:
+	push rax
+	push rcx
+	push rdi
+
+	mov rdi, VIDEO_RAM
+	mov rcx, 80*25
+	mov rax, 0x0A20		; 4 "green" Space characters
+	rep stosw
+
+	pop rdi
+	pop rcx
+	pop rax
+	ret
 
 
 ; Variables used in LONG MODE (64 bit)
@@ -190,4 +280,5 @@ msg_long_mode db 'Long mode entered', 0x00
 
 ; Pad to 8190 bytes
 ; Leave 4 bytes for signature
-times 0x2000-($-$$) db 0x90
+times 0x2000-4-($-$$) db 0x90
+jmp $

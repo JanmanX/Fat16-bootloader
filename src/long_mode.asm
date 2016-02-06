@@ -6,10 +6,6 @@
 %define PAGE_PRESENT 	0x01
 %define PAGE_WRITE  	0x02
 
-%define CODE_SEG	0x0008
-%define DATA_SEG	0x0010
-
-
 align 4	; Align to 4 bytes
 IDT:
 	.length	dw 0x00
@@ -162,4 +158,4 @@ GDT64:                           ; Global Descriptor Table (64-bit).
 	dw $ - GDT64 - 1             ; Limit (length of GDT).
 	dq GDT64                     ; Address of GDT64
 
-
+%define KM_DATA GDT64.KM_Data
