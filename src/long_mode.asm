@@ -24,7 +24,7 @@ enter_long_mode:
 	mov ecx, 0x1000
 	xor eax, eax
 	cld
-	rep stosd	; Repeatedly write eax to [es:edi] (which is incremented)
+	rep stosd	; Repeatedly write eax (4 bytes) to [es:edi] (which is incremented)
 	pop di
 
 	; Create Page Map Level 4 Table (PML4)
@@ -71,13 +71,13 @@ enter_long_mode:
 
 
 	; Load the Interrupt Descriptor Table (IDT)
-	lidt [IDT]	; Causes an Non-Maskable Interrupt (NMI)
+	lidt [IDT]		; Causes an Non-Maskable Interrupt (NMI)
 
 	; Enter long mode
-	mov eax, 0xA0	; Set the PAE and PGE bits (5 and 7)
+	mov eax, 0xA0		; Set the PAE and PGE bits (5 and 7)
 	mov cr4, eax
 
-	mov edx, edi	; Point CR3 to PML4
+	mov edx, edi		; Point CR3 to PML4
 	mov cr3, edx
 
 	mov ecx, 0xC0000080	; Register Extended Feature Enable Register (EFER)
@@ -93,34 +93,73 @@ enter_long_mode:
 
 	lgdt [GDT64.Pointer]	; Load Global Descriptor Table (GDT)
 
-	jmp CODE_SEG:long_mode
+	jmp GDT64.KM_Code:long_mode
 
 
 ; Global Descriptor Table used for long mode
+;
+; LAYOUT:
+; Limit			2 bytes
+; Base 0:15		2 bytes
+; Base 16:23		1 byte
+; Access		1 byte
+; Limit 16:19		4 bits
+; Flags			4 bits
+; Base 24:31		1 byte
+;
+; User Mode access byte
+; +-------+-------+
+; |  0xF  |  0xA  |
+; +---------------+
+; |1|1|1|1|1|0|1|0|
+; ++-+-+-+-+-+-+-++
+;  | | | | | | | |
+;  | | | | | | | +-----> Accessed bit. Set it to zero.
+;  | | | | | | +-------> Readable / Writeable bit. Readable bit for Code, Writeable for data sectors
+;  | | | | | +---------> Direction Bit.
+;  | | | | +-----------> Executable bit. 1 for Code, 0 for data
+;  | | | +-------------> Must be 1.
+;  | +-+---------------> Privilege, 2 bits. Containing ring level.
+;  |
+;  +-------------------> Preset bit. Must be 1 for all valid selectors.
 GDT64:                           ; Global Descriptor Table (64-bit).
-    .Null: equ $ - GDT64         ; The null descriptor.
-    dw 0                         ; Limit (low).
-    dw 0                         ; Base (low).
-    db 0                         ; Base (middle)
-    db 0                         ; Access.
-    db 0                         ; Granularity.
-    db 0                         ; Base (high).
-    .Code: equ $ - GDT64         ; The code descriptor.
-    dw 0                         ; Limit (low).
-    dw 0                         ; Base (low).
-    db 0                         ; Base (middle)
-    db 10011010b                 ; Access (exec/read).
-    db 00100000b                 ; Granularity.
-    db 0                         ; Base (high).
-    .Data: equ $ - GDT64         ; The data descriptor.
-    dw 0                         ; Limit (low).
-    dw 0                         ; Base (low).
-    db 0                         ; Base (middle)
-    db 10010010b                 ; Access (read/write).
-    db 00000000b                 ; Granularity.
-    db 0                         ; Base (high).
-    .Pointer:                    ; The GDT-pointer.
-    dw $ - GDT64 - 1             ; Limit (length of GDT).
-    dq GDT64                     ; Address of GDT64
+	.Null: equ $ - GDT64         ; The null descriptor.
+	dw 0                         ; Limit (low).
+	dw 0                         ; Base (low).
+	db 0                         ; Base (middle)
+	db 0                         ; Access.
+	db 0                         ; Granularity.
+	db 0                         ; Base (high).
+	.KM_Code: equ $ - GDT64         ; The kernel mode code descriptor.
+	dw 0                         ; Limit (low).
+	dw 0                         ; Base (low).
+	db 0                         ; Base (middle)
+	db 10011010b                 ; Access (exec/read).
+	db 00100000b                 ; Granularity.
+	db 0                         ; Base (high).
+	.KM_Data: equ $ - GDT64         ; The data descriptor.
+	dw 0                         ; Limit (low).
+	dw 0                         ; Base (low).
+	db 0                         ; Base (middle)
+	db 10010010b                 ; Access (read/write).
+	db 00000000b                 ; Granularity.
+	db 0                         ; Base (high).
+	.UM_Code: equ $ - GDT64
+	dw 0
+	dw 0
+	db 0
+	db 0xFA
+	db 0xCF
+	db 0
+	.UM_Data: equ $ - GDT64
+	dw 0
+	dw 0
+	db 0
+	db 0xF2
+	db 0xCF
+	db 0
+	.Pointer:                    ; The GDT-pointer.
+	dw $ - GDT64 - 1             ; Limit (length of GDT).
+	dq GDT64                     ; Address of GDT64
 
 
