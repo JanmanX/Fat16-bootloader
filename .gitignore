@@ -4,6 +4,5 @@ bin/*.img
 tmp/
 bin/*.vdmk
 resources/
-
 src/bootloader
 src/stage2

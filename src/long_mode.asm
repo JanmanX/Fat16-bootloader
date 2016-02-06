@@ -56,7 +56,6 @@ enter_long_mode:
 	cmp eax, 0x200000
 	jb .loop_page_table
 
-
 	pop di				; Restore DI
 
 	; Disable IRQs (Interrupt Requests from hardware)

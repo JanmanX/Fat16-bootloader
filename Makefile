@@ -45,6 +45,10 @@ debug: $(DISK_IMAGE)
 						-ex 'break *0x8000 ' \
 						-ex 'continue'
 
+bochs: $(DISK_IMAGE)
+	bochs -f ./tools/bochs/bochs.conf -q
+
+
 vm: $(DISK_IMAGE)
 	VBoxManage internalcommands createrawvmdk -rawdisk $(DISK_IMAGE) -filename bin/os.vmdk
 

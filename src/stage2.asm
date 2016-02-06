@@ -168,32 +168,6 @@ long_mode:
 	mov rsi, msg_long_mode
 	call print_string
 
-	mov rsi, msg_long_mode
-	call print_string
-	mov rsi, msg_long_mode
-	call print_string
-
-
-
-	jmp $
-;	; Blank out the screen
-;	mov edi, VIDEO_RAM
-;	mov rcx, 25*80/4
-;	mov rax, 0x0720072007200720	; 4 white on grey spaces
-;	rep stosq                         ; Clear the entire screen.
-;
-;	; Display "Hello World!"
-;	mov edi, VIDEO_RAM
-;	mov esi, msg_long_mode
-;	mov ah, 0x0A
-;.loop:
-;	lodsb
-;	cmp al, 0x00
-;	je .loop_finished
-;	mov [edi], ax
-;	add edi, 0x02
-;	jmp .loop
-;
 	jmp $
 
 ; print_string
