@@ -168,6 +168,13 @@ long_mode:
 	mov rsi, msg_long_mode
 	call print_string
 
+	mov rsi, msg_long_mode
+	call print_string
+	mov rsi, msg_long_mode
+	call print_string
+
+
+
 	jmp $
 ;	; Blank out the screen
 ;	mov edi, VIDEO_RAM
@@ -207,23 +214,23 @@ print_string:
 .loop:
 	lodsb			; Loads a byte from [RSI] into AL
 	cmp al, 0x00
-	je .exit
+	je exit
 
 	; Write character
 	call print_character
-
 	jmp .loop
 
-.exit:
+exit:
 	; Update cursor
 	mov byte [x_pos], 0x00	; Set to start of line
 	add byte [y_pos], 0x01	; Move down one line
 
 	mov bl, 80
 	cmp bl, byte [y_pos]		; If on end of screen, reset
+	jne .exit
 
 	mov byte [y_pos], 0x00
-
+.exit:
 	pop rbx
 	pop rax
 	ret

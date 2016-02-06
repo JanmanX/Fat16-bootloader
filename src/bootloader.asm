@@ -164,12 +164,6 @@ start_16:
 	; ES:BX points to the root directory entry
 	mov ax, word [bx + 0x1A]	; Retrieve the first cluster number
 
-; - Load cluster (ax) to disk starting 0x8000
-; - Load FAT0
-; - Check next cluster
-; - Exit if none
-; - Repeat
-.lloop:
 	; Calculate the Cluster sector offset
 	; offset = data_cluster_offset + (FAT_INDEX - 2) * SectorsPerCluster
 	sub ax, 0x02
@@ -184,7 +178,7 @@ start_16:
 	call read_sectors
 
 	; Enter Stage 2
-	jmp 0x0000:0x8000
+	jmp 0x07C0:0x0400
 
 
 ; Generic function for errors
