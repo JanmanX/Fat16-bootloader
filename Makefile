@@ -1,5 +1,6 @@
 DISK_IMAGE=bin/disk.img
 QEMU=qemu-system-x86_64
+QEMU_ARGS=-m 2G
 AS=nasm
 AFLAGS=-f bin -g
 SOURCES=$(wildcard src/*.asm)
@@ -17,7 +18,7 @@ OBJECTS=$(SOURCES:.asm=.)
 disk: $(DISK_IMAGE)
 
 run: $(DISK_IMAGE)
-	$(QEMU) $(DISK_IMAGE)
+	$(QEMU) $(QEMU_ARGS) $(DISK_IMAGE)
 
 
 create_disk:
@@ -27,16 +28,17 @@ create_disk:
 
 # WRITE BIOS PARAMETER BLOCK BEFORE MOUNTING IT, AS IT CHANGES
 # FAT 16 INFORMATION
-$(DISK_IMAGE): src/bootloader src/stage2
+$(DISK_IMAGE): clean src/bootloader src/stage2
 	mkfs.fat -F 16 $(DISK_IMAGE)
 	dd if=src/bootloader of=$(DISK_IMAGE) conv=notrunc,fsync
 	-sudo umount ./tmp
 	sudo mount $(DISK_IMAGE) ./tmp
+	-sudo rm ./tmp/STAGE2.BIN
 	sudo cp src/stage2 ./tmp/STAGE2.BIN
 	sudo umount ./tmp/
 
 
-debug: $(DISK_IMAGE)
+debug_real_mode: $(DISK_IMAGE)
 	$(QEMU) $(DISK_IMAGE) -s -S & gdb -ex 'target remote localhost:1234'\
 						-ex 'set architecture i8086' \
 						-ex 'layout asm' \
@@ -44,6 +46,18 @@ debug: $(DISK_IMAGE)
 						-ex 'break *0x7c00 ' \
 						-ex 'break *0x8000 ' \
 						-ex 'continue'
+
+
+debug_long_mode: $(DISK_IMAGE)
+	$(QEMU) $(DISK_IMAGE) -s -S & gdb -ex 'target remote localhost:1234'\
+						-ex 'set architecture i386:x86-64' \
+						-ex 'layout asm' \
+						-ex 'layout regs' \
+						-ex 'break *0x82E6 ' \
+						-ex 'continue'
+
+
+
 
 bochs: $(DISK_IMAGE)
 	bochs -f ./tools/bochs/bochs.conf -q

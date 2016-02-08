@@ -154,21 +154,10 @@ hexloop:
 ;                                  64 BIT
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 [BITS 64]
-long_mode:
-	mov ax, KM_DATA
-	mov ds, ax
-	mov es, ax
-	mov fs, ax
-	mov gs, ax
-	mov ss, ax
+
+; CODE HERE
 
 
-	call clear_screen
-
-	mov rsi, msg_long_mode
-	call print_string
-
-	jmp $
 
 ; print_string
 ;
