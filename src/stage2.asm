@@ -35,6 +35,11 @@ start:
 	mov si, msg_entry
 	call print_string_16
 
+	; Disable cursor blinking
+	mov ah, 0x01
+	mov cx, 0x2607
+	int 0x10
+
 	; Check CPUID availability
 	; If CPUID instruction is supported, the 'ID' bit (0x200000) in eflags
 	; will be modifiable.
