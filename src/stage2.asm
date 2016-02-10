@@ -8,6 +8,7 @@
 
 [BITS 16]
 [ORG 0x8000]
+[map all src/debug/stage2.map]
 
 ; CONSTANTS
 %define VIDEO_RAM 0xB8000		; Start of 80x25 video memory
@@ -175,6 +176,7 @@ x_pos db 0x00
 y_pos db 0x00
 string_color db 0x0A		; Green color
 print_string:
+	push rdi
 	push rax
 	push rbx
 
@@ -201,6 +203,7 @@ exit:
 .exit:
 	pop rbx
 	pop rax
+	pop rdi
 	ret
 
 print_character:

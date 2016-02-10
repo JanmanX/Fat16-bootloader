@@ -7,7 +7,7 @@
 
 [BITS 16]	; opcode prefix
 [ORG 0x0000]
-
+[map all src/debug/bootloader.map]
 %define DEBUG
 %define STAGE2_SIZE 0x10	; Stage2 size in sectors
 

@@ -6,7 +6,6 @@
 	int 0x10        ; call INT 10h, BIOS video service
 	popa
 %endmacro
-[map all long_mode.map]
 
 [BITS 16]
 
@@ -25,14 +24,15 @@ IDT:
 ; For simplicity, identity mapping will be used (virtual addr = physical addr)
 ; Also, 2MiB pages will be used. Page Size (PS) Bit in PDE must be set for 2MiB
 ; pages.
-; We will need:
-; 1 PML4E * 2 PDPE * 512 PDE = 2 * 512 * 2MiB = 2GiB
-%define NUM_PDP 2
+; Each PDPE maps 1 GiB: 1 * 512 * 2MiB = 1GiB.
+; Therefore, for 64GiB, we need 64 PDP Entries
+%define NUM_PDP 64
+; Multiplication of 4096 is the same as shifting left 12 times.
+
 
 ; es:edi    Should point to a valid page-aligned 16KiB buffer, for the PML4, PDPT, PD and a PT.
 ; ss:esp    Should point to memory that can be used as a small (1 uint32_t) stack
 enter_long_mode:
-	; es:edi
 	push edi
 	mov ecx, 0x800000
 	xor eax, eax
@@ -41,45 +41,24 @@ enter_long_mode:
 	pop edi
 
 	; Create Page Map Level 4 Table (PML4)
-	; es:edi points to PML4
+	; es:di points to PML4
 	lea eax, [es:di + 0x1000]         ; Put the address of the Page Directory Pointer Table in to EAX.
    	or eax, PAGE_PRESENT | PAGE_WRITE ; Or EAX with the flags - present flag, writable flag.
     	mov [es:di], eax                  ; Store the value of EAX as the first PML4E.
-
 	debug '1'
 
 	; Create the Page Directory Pointer Table (PDP)
-	xor ebx, ebx
-build_pdp:
-	lea eax, [es:edi + ebx * 8 + 0x2000]
+	lea eax, [es:di + 0x2000]		; EAX points to first PDE
 	or eax, PAGE_PRESENT | PAGE_WRITE
-	lea ecx, [es:edi + ebx * 8 + 0x1000]
-	mov [ecx], eax
-	inc ebx
-	cmp ebx, NUM_PDP
-	debug '@'
-	jb build_pdp
-
+	mov [es:di + 0x1000], eax		; Store value of EAX as the first PDPE
 	debug '2'
 
-	; Create the Page Directory Table
-	push edi		; Save for later
-	lea di, [edi + 0x2000]	; Point to PD table
+	; Create one entry in the Page Directory Table
 	mov eax, PAGE_PRESENT | PAGE_WRITE | PAGE_SIZE
-	xor ebx, ebx
-build_pd:
-	mov [es:edi], eax
-	add eax, 0x200000	; Add 2 MiB
-	add edi, 0x08		; Move to next entry
-	cmp eax, NUM_PDP * 512 * 0x200000	; 2GiB = 0x80000000
-	debug '#'
-	jb build_pd
-
-	pop edi
-
+	mov [es:di + 0x2000], eax	; Map only one 2MiB Map. Rest will be done in Long Mode
+	add eax, 0x00200000
+	mov [es:di + 0x2008], eax
 	debug '3'
-debug_here:
-	;jmp $
 
 	; Disable IRQs (Interrupt Requests from hardware)
 	; http://wiki.osdev.org/8259_PIC#Disabling
@@ -122,11 +101,107 @@ long_mode:
 	mov gs, ax
 	mov ss, ax
 
+        xor r8, r8
+        xor r9, r9
+        xor r10, r10
+        xor r11, r11
+        xor r12, r12
+        xor r13, r13
+        xor r14, r14
+        xor r15, r15
+	cld
+
+	; Clear cr3 - to 0xA0000
+	mov rdi, cr3			; Retrieve address of PML4
+	add rdi, 0x1000			; Offset to PDP
+	xor rcx, rcx			; Counter
+build_pdp:
+	; Calculate address of PDE
+	mov rbx, rcx			; rbx must be used for lea
+	shl rbx, 0x0c			; rbx = rcx * 0x1000
+	lea rax, [rdi + 0x1000 + rbx]	; Address of PD Entry
+	or rax, PAGE_PRESENT | PAGE_WRITE
+	xchg rbx, rcx			; rcx cant be used in LEA
+	lea rcx, [rdi + rbx * 8]	; Address of index to save to
+	xchg rbx, rcx
+	mov [rbx], rax			; Save entry to PDP
+	inc rcx
+	cmp rcx, NUM_PDP
+	jb build_pdp
+
+
+	; Create the rest of the Page Directory table
+	mov rdi, cr3		; Get the address of PML4
+	add rdi, 0x2000		; Offset to Page Directory Table.
+	mov rax, PAGE_PRESENT | PAGE_WRITE | PAGE_SIZE
+	xor rcx, rcx		; Counter
+build_pd:
+	stosq
+	add rax, 0x200000	; Add 2 MiB offset
+	inc rcx
+	cmp rcx, NUM_PDP * 512	; If all entries have been written, exit
+	jb build_pd
+
+
+
+
 	call clear_screen
 	mov rsi, msg_long_mode
 	call print_string
+
+debug_here:
+	mov rax, 0x80000000
+	mov rdi, rax
+	mov [rdi], dword 0xCAFEBABE	; Store at 2GiB
+
+	mov rsi, debugmsg
+	call print_string
+
+
+	add rdi, rax
+	mov [rdi], dword 0xCAFEBABE	; Store at 4GiB
+
+	mov rsi, debugmsg
+	call print_string
+
+	add rdi, rax
+	mov [rdi], dword 0xCAFEBABE	; Store at 6GiB
+
+	mov rsi, debugmsg
+	call print_string
+
+	add rdi, rax
+	mov [rdi], dword 0xCAFEBABE	; Store at 8GiB
+
+	mov rsi, debugmsg
+	call print_string
 	jmp $
 
+	add rdi, rax
+	mov [rdi], dword 0xCAFEBABE	; Store at 10GiB
+
+	mov rsi, debugmsg
+	call print_string
+
+
+
+	jmp $
+	push rdi
+.loop:
+	lodsb	; Load byte from [rsi] to al
+	cmp al, 0x00
+	je .loop_end
+	mov byte [rdi], al
+	inc rdi
+	jmp .loop
+.loop_end:
+	pop rsi
+	call print_string
+	jmp $
+
+
+
+debugmsg db 'THIS IS A LONG TEST DEBUG MESSAGE', 0x00
 ; Global Descriptor Table used for long mode
 ;
 ; LAYOUT:

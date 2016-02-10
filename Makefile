@@ -1,6 +1,6 @@
 DISK_IMAGE=bin/disk.img
 QEMU=qemu-system-x86_64
-QEMU_ARGS=-m 2G
+QEMU_ARGS=-m 10G
 AS=nasm
 AFLAGS=-f bin -g
 SOURCES=$(wildcard src/*.asm)
@@ -67,6 +67,10 @@ vm: $(DISK_IMAGE)
 	VBoxManage internalcommands createrawvmdk -rawdisk $(DISK_IMAGE) -filename bin/os.vmdk
 
 
+to_usb: $(DISK_IMAGE)
+	sudo dd if=$(DISK_IMAGE) of=/dev/sdd
+	sync
+
 mount: $(DISK_IMAGE)
 	-sudo mount $(DISK_IMAGE) ./tmp
 
@@ -80,5 +84,7 @@ clean:
 	-sudo umount ./tmp
 	-rm -rfv ./tmp
 	mkdir ./tmp
+
+
 
 full_clean: create_disk clean
