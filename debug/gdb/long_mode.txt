@@ -1,0 +1,6 @@
+target remote localhost:1234
+set architecture i386:x86-64
+layout asm
+layout regs
+break *0x82E6
+continue

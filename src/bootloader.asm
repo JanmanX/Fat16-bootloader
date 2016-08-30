@@ -52,9 +52,9 @@ SectorsBig		dd 0x773594		;
 DriveNumber		db 0x80		; 0 for removable, 0x80 for hard-drive
 WinNTBit		db 0x00		; WinNT uses this
 Signature		db 0x29		; DOS 4.0 EBPB signature
-VolumeID		dd 0x0000D105	; Volume ID. "DIKOS"
+VolumeID		dd 0x0000D105	; Volume ID
 VolumeIDString		db "DIKOS BOOT "; Volume ID
-SystemIDString		db "FAT12   "   ; File system type, pad with blanks to 8 bytes
+SystemIDString		db "FAT16   "   ; File system type, pad with blanks to 8 bytes
 
 
 ;pre_start_16:
@@ -65,6 +65,8 @@ start_16:
 	xor ax, ax
         mov ss, ax
 	mov sp, 0x7C00
+
+	; Point data and extra segment registers to the code
 	mov ax, 0x07C0
 	mov ds, ax
         mov es, ax
@@ -80,7 +82,6 @@ start_16:
 	; Print loading message
 	mov si, msg_loading
 	call print_string
-
 
 	; Calculate root directory sector offset
 	; sector = Reserved + FATCopies * SectorsPerFAT
@@ -309,20 +310,13 @@ stage2_cur_segment dw 0x0000	; Current segment in memory
 
 ; Data Address Packet (DAP) for reading from disk using BIOS service int 13h/42h
 dap:
-dap_size:			; Size of the data address packet.
-	db 0x10
-dap_reserved:			; Reserved. Should be 0
-	db 0x00
-dap_block_count:		; Number of blocks to read
-	dw 0x01
-dap_offset:			; Offset. (Already set with default)
-	dw 0x0000
-dap_segment:			; Segment
-	dw 0x00
-dap_sector_low:			; Lower 32 bits of sector number
-	dd 0x01
-dap_sector_high:		; Upper 32 bits of sector number
-	dd 0x00
+dap_size:		db 0x10		; Size of the data address packet.
+dap_reserved:		db 0x00		; Reserved. Should be 0
+dap_block_count:	dw 0x01		; Number of blocks to read
+dap_offset:		dw 0x0000	; Offset. (Already set with default)
+dap_segment:		dw 0x00		; Segment
+dap_sector_low:		dd 0x01		; Lower 32 bits of sector number
+dap_sector_high:	dd 0x00		; Upper 32 bits of sector number
 
 
 ; Null the rest of the sector

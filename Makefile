@@ -1,10 +1,14 @@
 DISK_IMAGE=bin/disk.img
 QEMU=qemu-system-x86_64
-QEMU_ARGS=-m 10G
+QEMU_FLAGS=-m 16G
+BOCHS=bochs
 AS=nasm
 AFLAGS=-f bin -g
 SOURCES=$(wildcard src/*.asm)
 OBJECTS=$(SOURCES:.asm=.)
+VM=vm
+DEBUG_DIR=./debug
+
 
 .PHONY: clean mount umount
 
@@ -18,7 +22,7 @@ OBJECTS=$(SOURCES:.asm=.)
 disk: $(DISK_IMAGE)
 
 run: $(DISK_IMAGE)
-	$(QEMU) $(QEMU_ARGS) $(DISK_IMAGE)
+	$(QEMU) $(QEMU_FLAGS) $(DISK_IMAGE)
 
 
 create_disk:
@@ -39,37 +43,17 @@ $(DISK_IMAGE): clean src/bootloader src/stage2
 
 
 debug_real_mode: $(DISK_IMAGE)
-	$(QEMU) $(DISK_IMAGE) -s -S & gdb -ex 'target remote localhost:1234'\
-						-ex 'set architecture i8086' \
-						-ex 'layout asm' \
-						-ex 'layout regs' \
-						-ex 'break *0x7c00 ' \
-						-ex 'break *0x8000 ' \
-						-ex 'continue'
+	$(QEMU) $(DISK_IMAGE) -s -S & gdb -x $(DEBUG_DIR)/gdb/real_mode.txt
 
 
 debug_long_mode: $(DISK_IMAGE)
-	$(QEMU) $(DISK_IMAGE) -s -S & gdb -ex 'target remote localhost:1234'\
-						-ex 'set architecture i386:x86-64' \
-						-ex 'layout asm' \
-						-ex 'layout regs' \
-						-ex 'break *0x82E6 ' \
-						-ex 'continue'
-
+	$(QEMU) $(DISK_IMAGE) -s -S & gdb -x $(DEBUG_DIR)/gdb/long_mode.txt
 
 
 
 bochs: $(DISK_IMAGE)
-	bochs -f ./tools/bochs/bochs.conf -q
+	$(BOCHS) -f $(DEBUG_DIR)/bochs/bochs.conf -q
 
-
-vm: $(DISK_IMAGE)
-	VBoxManage internalcommands createrawvmdk -rawdisk $(DISK_IMAGE) -filename bin/os.vmdk
-
-
-to_usb: $(DISK_IMAGE)
-	sudo dd if=$(DISK_IMAGE) of=/dev/sdd
-	sync
 
 mount: $(DISK_IMAGE)
 	-sudo mount $(DISK_IMAGE) ./tmp
